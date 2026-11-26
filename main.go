@@ -29,7 +29,6 @@ import (
 var (
 	MainRoom                   = &Room{"#main", make([]*User, 0, 10), sync.RWMutex{}}
 	Rooms                      = map[string]*Room{MainRoom.name: MainRoom}
-	Backlog                    []backlogMessage
 	Bans                       = make([]Ban, 0, 10)
 	IDandIPsToTimesJoinedInMin = make(map[string]int, 10) // ban type has addr and id
 	AntispamMessages           = make(map[string]int)
@@ -62,7 +61,6 @@ type User struct {
 	Name            string
 	Prompt          string
 	formattedPrompt string
-	Pronouns        []string
 	Bio             string
 	session         ssh.Session
 	term            *terminal.Terminal
@@ -75,17 +73,22 @@ type User struct {
 	isBridge      bool
 	IsMuted       bool
 	FormatTime24  bool
+	RelativeTime  bool   // per-message stamps like "5m ago" instead of a clock
+	Gfx           string // auto, blocks, kitty, iterm, or sixel. Used for !hq images.
 
 	Color   string
 	ColorBG string
 	id      string
 	addr    string
 
-	winWidth      int
-	lastTimestamp time.Time
-	joinTime      time.Time
-	lastInteract  time.Time
-	Timezone      tz
+	winWidth     int
+	joinTime     time.Time
+	lastInteract time.Time
+	Timezone     tz
+
+	termName string
+	gfxAuto  string
+	pastes   *imagePasteGate
 }
 
 type tz struct {
@@ -116,11 +119,6 @@ func (t *tz) MarshalJSON() ([]byte, error) {
 	return json.Marshal(t.Location.String())
 }
 
-type backlogMessage struct {
-	Message
-	timestamp time.Time
-}
-
 // TODO: have a web dashboard that shows logs
 func main() {
 	go func() {
@@ -130,12 +128,14 @@ func main() {
 		}
 	}()
 	readBans()
+	loadHistory()
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		<-c
 		Log.Println("Shutting down...")
 		saveBans()
+		compactHistory()
 		time.AfterFunc(time.Second, func() {
 			Log.Println("Broadcast taking too long, exiting server early.")
 			os.Exit(4)
@@ -151,7 +151,8 @@ func main() {
 	}()
 
 	// read tor list from https://www.dan.me.uk/torlist/?exit
-	resp, err := http.Get("https://www.dan.me.uk/torlist/?exit")
+	torClient := http.Client{Timeout: 5 * time.Second}
+	resp, err := torClient.Get("https://www.dan.me.uk/torlist/?exit")
 	if err == nil {
 		defer resp.Body.Close()
 		body, err := io.ReadAll(resp.Body)
@@ -286,6 +287,10 @@ func (r *Room) broadcastNoBridges(msg Message) {
 	if msg.text == "" {
 		return
 	}
+	if msg.timestamp.IsZero() {
+		msg.timestamp = time.Now()
+	}
+	msg.text = absorbEmbeddedImages(msg.text)
 	msg.text = r.findMention(strings.ReplaceAll(msg.text, "@everyone", Green.Paint("everyone\a")))
 	imgCache := make(map[string]image.Image, 1)
 	//go func() {
@@ -302,10 +307,7 @@ func (r *Room) broadcastNoBridges(msg Message) {
 	//runtime.GC()
 	//r.usersMutex.RUnlock()
 	//}()
-	if r == MainRoom && len(Backlog) > 0 {
-		Backlog = Backlog[1:]
-		Backlog = append(Backlog, backlogMessage{msg, time.Now()})
-	}
+	recordHistory(r.name, msg)
 }
 
 func autocompleteCallback(u *User, line string, pos int, key rune) (string, int, bool) {
@@ -366,7 +368,11 @@ func roomAutocomplete(_ *User, words []string) string {
 }
 
 func newUser(s ssh.Session) *User {
-	term := terminal.NewTerminal(s, "> ")
+	gate := newImagePasteGate(s)
+	term := terminal.NewTerminal(struct {
+		io.Reader
+		io.Writer
+	}{gate, s}, "> ")
 	_ = term.SetSize(10000, 10000) // disable any formatting done by term
 	pty, winChan, isPty := s.Pty()
 	w := pty.Window.Width
@@ -390,20 +396,21 @@ func newUser(s ssh.Session) *User {
 	}
 
 	u := &User{
-		Name:          s.User(),
-		Pronouns:      []string{"unset"},
-		session:       s,
-		term:          term,
-		ColorBG:       "bg-off",
-		Bell:          true,
-		Bio:           "(none set)",
-		id:            shasum(toHash),
-		addr:          host,
-		winWidth:      w,
-		lastTimestamp: time.Now(),
-		lastInteract:  time.Now(),
-		joinTime:      time.Now(),
-		room:          MainRoom}
+		Name:         s.User(),
+		session:      s,
+		term:         term,
+		ColorBG:      "bg-off",
+		Bell:         true,
+		Bio:          "(none set)",
+		id:           shasum(toHash),
+		addr:         host,
+		winWidth:     w,
+		lastInteract: time.Now(),
+		joinTime:     time.Now(),
+		room:         MainRoom,
+		pastes:       gate,
+		gfxAuto:      detectGfx(pty.Term, s.Environ()),
+	}
 
 	go func() {
 		for win := range winChan {
@@ -505,22 +512,7 @@ func newUser(s ssh.Session) *User {
 		}
 	}
 
-	if !Config.Private { // sensitive info might be shared on a private server
-		var lastStamp time.Time
-		for i := range Backlog {
-			if Backlog[i].text == "" { // skip empty entries
-				continue
-			}
-			if i == 0 || Backlog[i].timestamp.Sub(lastStamp) > time.Minute {
-				lastStamp = Backlog[i].timestamp
-				u.rWriteln(fmtTime(u, lastStamp))
-			}
-			u.writeln(Backlog[i].Message)
-		}
-		if time.Since(lastStamp) > time.Minute && u.Timezone.Location != nil {
-			u.rWriteln(fmtTime(u, time.Now()))
-		}
-	}
+	replayHistory(u, MainRoom.name)
 
 	MainRoom.usersMutex.Lock()
 	MainRoom.users = append(MainRoom.users, u)
@@ -640,10 +632,11 @@ type Message struct {
 
 	messageType      MessageType
 	sentFromPluginId string
+	timestamp        time.Time
 }
 
 func NewMessage(sender *User, text string) Message {
-	return Message{sender, text, DefaultMessage, ""}
+	return Message{sender, text, DefaultMessage, "", time.Now()}
 }
 
 func NewFakeUserMessage(sender string, text string, room *Room) Message {
@@ -661,7 +654,7 @@ func NewDevbotMessage(text string) Message {
 }
 
 func NewNoSenderMessage(text string) Message {
-	return Message{nil, text, NoSenderMessage, ""}
+	return Message{nil, text, NoSenderMessage, "", time.Now()}
 }
 
 func NewPrivateMessage(sender *User, text string, isSender bool) Message {
@@ -669,7 +662,7 @@ func NewPrivateMessage(sender *User, text string, isSender bool) Message {
 	if isSender {
 		messageType = PrivateMessageSend
 	}
-	return Message{sender, text, messageType, ""}
+	return Message{sender, text, messageType, "", time.Now()}
 }
 
 func (msg Message) dontSendToPlugin(pluginId string) Message {
@@ -703,22 +696,23 @@ func (u *User) writelnWithImageCache(msg Message, cache map[string]image.Image) 
 	msg.text = strings.ReplaceAll(msg.text, `\n`, "\n")
 	msg.text = strings.ReplaceAll(msg.text, `\`+"\n", `\n`) // let people escape newlines
 	thisUserIsDMSender := msg.messageType == PrivateMessageSend
-	var prefix string
+	var namePrefix string
 	switch msg.messageType {
 	case PrivateMessageSend:
-		prefix = msg.getMessageSenderName() + " <- "
+		namePrefix = msg.getMessageSenderName() + " <- "
 	case PrivateMessageReceive:
-		prefix = msg.getMessageSenderName() + " -> \a"
+		namePrefix = msg.getMessageSenderName() + " -> \a"
 	case DefaultMessage:
-		prefix = msg.getMessageSenderName() + ": "
+		namePrefix = msg.getMessageSenderName() + ": "
 	case NoSenderMessage:
-		prefix = ""
+		namePrefix = ""
 	}
-	msg.text = prefix + strings.TrimSpace(mdRender(msg.text, lenString(prefix), u.winWidth, cache))
-	if time.Since(u.lastTimestamp) > time.Minute {
-		u.lastTimestamp = time.Now()
-		u.rWriteln(fmtTime(u, u.lastTimestamp))
+	when := msg.timestamp
+	if when.IsZero() {
+		when = time.Now()
 	}
+	prefix := "\x1b[38;5;245m" + fmtMsgTime(u, when) + "\x1b[0m " + namePrefix
+	msg.text = prefix + strings.TrimSpace(mdRender(msg.text, lenString(prefix), u.winWidth, cache, u))
 	if u.PingEverytime && msg.getMessageSenderName() != u.Name && !thisUserIsDMSender {
 		msg.text += "\a"
 	}
@@ -783,18 +777,6 @@ func (u *User) pickUsernameQuietly(possibleName string) error {
 	u.Name, _ = applyColorToData(possibleName, u.Color, u.ColorBG) //nolint:errcheck // we haven't changed the color so we know it's valid
 	u.formatPrompt()
 	return nil
-}
-
-func (u *User) displayPronouns() string {
-	result := ""
-	for i := 0; i < len(u.Pronouns); i++ {
-		str, _ := applyColorToData(u.Pronouns[i], u.Color, u.ColorBG)
-		result += "/" + str
-	}
-	if result == "" {
-		return result
-	}
-	return result[1:]
 }
 
 func (u *User) savePrefs() error {
@@ -863,6 +845,7 @@ func (u *User) changeRoom(r *Room) {
 		u.pickUsername("") //nolint:errcheck // if reading input failed the next repl will err out
 	}
 	u.room.users = append(u.room.users, u)
+	replayHistory(u, r.name)
 	u.room.broadcast(NewNoSenderMessage(Green.Paint(" --> ") + u.Name + " has joined " + Blue.Paint(u.room.name)))
 }
 
@@ -938,6 +921,10 @@ func (u *User) repl() {
 			u.close(u.Name + " has left the chat due to an error: " + err.Error())
 			return
 		}
+		if u.pastes != nil {
+			line = u.pastes.expand(line)
+		}
+		line = absorbEmbeddedImages(line)
 		if len(line) > maxMsgLen { // limit msg len as early as possible.
 			line = line[0:maxMsgLen]
 		}

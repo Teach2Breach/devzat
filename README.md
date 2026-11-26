@@ -109,7 +109,6 @@ Commands
    cd        #room|user      Join #room, DM user or run cd to see a list
    tz        <zone> [24h]    Set your IANA timezone (like tz Asia/Dubai) and optionally set 24h
    nick      <name>          Change your username
-   pronouns  @user|pronouns  Set your pronouns or get another user's
    theme     <theme>|list    Change the syntax highlighting theme
    rest                      Uncommon commands list
    cmds                      Show this message

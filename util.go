@@ -14,7 +14,6 @@ import (
 	"math"
 	"math/rand"
 	"net"
-	"net/http"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -140,71 +139,61 @@ func cleanName(name string) string {
 	return s
 }
 
-func mdRender(a string, beforeMessageLen int, lineWidth int, imageCache map[string]image.Image) string {
+func mdRender(a string, beforeMessageLen int, lineWidth int, imageCache map[string]image.Image, u *User) string {
+	a = markHQImages(a)
 	glamourStyle := styles.DarkStyleConfig
 	glamourStyle.Document.Color = nil
 	glamourStyle.Document.Margin = nil
 	glamourStyle.Image = ansi.StylePrimitive{Format: "\n<img>{{.text}}</img>\n"}
 	glamourStyle.ImageText.Format = "Image: {{.text}}"
 	glamourStyle.Table.StyleBlock.StylePrimitive.Prefix = "\x1b[0m" // ansi reset: hack to stop space in front of table from being erased
-	r, _ := glamour.NewTermRenderer(glamour.WithEmoji(), glamour.WithStyles(glamourStyle), glamour.WithWordWrap(lineWidth-beforeMessageLen), glamour.WithPreservedNewLines())
+	wrap := lineWidth - beforeMessageLen
+	if wrap < 8 {
+		wrap = 8
+	}
+	r, _ := glamour.NewTermRenderer(glamour.WithEmoji(), glamour.WithStyles(glamourStyle), glamour.WithWordWrap(wrap), glamour.WithPreservedNewLines())
 	md, err := r.Render(a)
 	if err != nil {
 		MainRoom.broadcast(NewDevbotMessage(err.Error()))
 		return ""
 	}
-	md = addLeftPad(strings.TrimSuffix(replaceImgs(md, lineWidth, imageCache), "\n"), beforeMessageLen)
+	md = addLeftPad(strings.TrimSuffix(replaceImgs(md, u, imageCache), "\n"), beforeMessageLen)
 	return md
 }
 
-func replaceImgs(md string, width int, cache map[string]image.Image) string {
+func replaceImgs(md string, u *User, cache map[string]image.Image) string {
 	if !strings.Contains(md, "<img>") {
 		return md
 	}
 	start := strings.Index(md, "<img>")
 	end := strings.Index(md, "</img>")
-	if end == -1 {
+	if end == -1 || end < start {
 		return md
 	}
 
-	imgStart := start + 5
-	imgEnd := end
-	imgText := md[imgStart:imgEnd]
+	imgText := md[start+5 : end]
 	imgText = strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(imgText), "\n", ""), " ", "")
+	url, hq := splitHQRef(imgText)
 
-	if img, ok := cache[imgText]; ok {
-		imgText = imgRender(img, width/2)
-		return replaceImgs(md[:start]+imgText+md[end+6:], width, cache)
+	var rendered string
+	if img, ok := cache[url]; ok {
+		rendered = renderImage(u, img, hq)
+	} else if img, err := loadAnyImage(url); err != nil {
+		rendered = imgText + " (" + err.Error() + ")"
+	} else {
+		if cache != nil {
+			cache[url] = img
+		}
+		rendered = renderImage(u, img, hq)
 	}
-
-	client := http.Client{Timeout: 5 * time.Second}
-	res, err := client.Get(imgText)
-	if err != nil {
-		return replaceImgs(md[:start]+imgText+" (error fetching image)"+md[end+6:], width, cache)
-	}
-	if res.StatusCode != http.StatusOK {
-		return replaceImgs(md[:start]+imgText+"(error: http: "+http.StatusText(res.StatusCode)+")"+md[end+6:], width, cache)
-	}
-	limitReader := io.LimitReader(res.Body, 30*1024*1024) // 30 megabyte limit
-	// https://github.com/golang/go/issues/12512#issuecomment-137981217
-	header := new(bytes.Buffer)
-	config, _, err := image.DecodeConfig(io.TeeReader(limitReader, header))
-	if err != nil || config.Width > 4032*2 || config.Height > 3024*2 {
-		return replaceImgs(md[:start]+imgText+" (invalid or too large to render)"+md[end+6:], width, cache)
-	}
-	img, _, err := image.Decode(io.MultiReader(header, limitReader))
-	if err != nil {
-		return replaceImgs(md[:start]+imgText+" (error decoding image)"+md[end+6:], width, cache)
-	}
-	if cache != nil {
-		cache[imgText] = img
-	}
-	imgText = imgRender(img, width/2)
-
-	return replaceImgs(md[:start]+imgText+md[end+6:], width, cache)
+	// Don't scan the rendered picture; kitty/sixel payloads can contain "<img>" by chance.
+	return md[:start] + rendered + replaceImgs(md[end+6:], u, cache)
 }
 
 func imgRender(img image.Image, width int) string {
+	if width < 1 {
+		width = 1
+	}
 	var builder strings.Builder
 	img = imaging.Fit(img, width, math.MaxInt32, imaging.Lanczos)
 	for y := 0; y < img.Bounds().Dy(); y += 2 {

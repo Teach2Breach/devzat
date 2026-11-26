@@ -117,7 +117,6 @@ Commands
    cd        #room|user      加入 #room，私聊用户或运行 cd 查看列表
    tz        <zone> [24h]    设置您的 IANA 时区（例如 tz Asia/Dubai），并可选择设置 24h
    nick      <name>          改变用户名
-   pronouns  @user|pronouns  设置你的性别代词或获取其他用户的性别代词
    theme     <theme>|list    更改语法高亮主题
    rest                      不常用的命令列表 
    cmds                      展示此命令

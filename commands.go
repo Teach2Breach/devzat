@@ -45,10 +45,11 @@ var (
 		{"tic", ticCMD, "`cell num`", "Play tic tac toe!"},
 		{"devmonk", devmonkCMD, "", "Test your typing speed"},
 		{"cd", cdCMD, "#`room`|`user`", "Join #room, DM user or run cd to see a list"}, // won't actually run, here just to show in docs
-		{"tz", tzCMD, "`zone` [24h]", "Set your IANA timezone (like tz Asia/Dubai) and optionally set 24h"},
+		{"tz", tzCMD, "`zone` [24h]", "Set your timezone for message timestamps. Run man tz"},
+		{"history", historyCMD, "", "Replay this room's saved messages. Run man history"},
+		{"gfx", gfxCMD, "auto|blocks|kitty|iterm|sixel", "How sharp images are drawn for you. Run man gfx"},
 		{"nick", nickCMD, "`name`", "Change your username"},
 		{"prompt", promptCMD, "`prompt`", "Change your prompt. Run `man prompt` for more info"},
-		{"pronouns", pronounsCMD, "`@user`|`pronouns`", "Set your pronouns or get another user's"},
 		{"theme", themeCMD, "`name`|list", "Change the syntax highlighting theme"},
 		{"rest", commandsRestCMD, "", "Uncommon commands list"}}
 	RestCMDs = []CMD{
@@ -174,7 +175,7 @@ func dmCMD(rest string, u *User) {
 		u.writeln(NewDevbotMessage("No such person lol, who you wanna dm? (you might be in the wrong room)"))
 		return
 	}
-	msg := strings.TrimSpace(strings.TrimPrefix(rest, restSplit[0]))
+	msg := absorbEmbeddedImages(strings.TrimSpace(strings.TrimPrefix(rest, restSplit[0])))
 	u.writeln(NewPrivateMessage(peer, msg, true))
 	if u == peer {
 		devbotRespond(u.room, []string{"You must be really lonely, DMing yourself.",
@@ -248,6 +249,7 @@ func usersCMD(_ string, u *User) {
 }
 
 func dmRoomCMD(line string, u *User) {
+	line = absorbEmbeddedImages(line)
 	u.writeln(NewPrivateMessage(u.messaging, line, true))
 	if u == u.messaging {
 		devbotRespond(u.room, []string{"You must be really lonely, DMing yourself.",
@@ -436,10 +438,41 @@ func cdCMD(rest string, u *User) {
 	u.writeln(NewDevbotMessage("Now in DMs with " + peer.Name + ". To leave use cd .."))
 }
 
+func historyCMD(_ string, u *User) {
+	if !roomHasHistory(u.room.name) {
+		u.writeln(NewDevbotMessage("Nothing in this room from the " + historyLabel() + " yet."))
+		return
+	}
+	replayHistory(u, u.room.name)
+}
+
+func gfxCMD(rest string, u *User) {
+	rest = strings.ToLower(strings.TrimSpace(rest))
+	if rest == "" || rest == "which" {
+		mode := u.Gfx
+		if mode == "" {
+			mode = "auto"
+		}
+		u.writeln(NewDevbotMessage("High-res images use " + mode + " (effective " + u.effectiveGfx() + "). Ordinary images stay blocky. Options: auto, blocks, kitty, iterm, sixel. Run man gfx for how to send one."))
+		return
+	}
+	switch rest {
+	case "auto", "blocks", "kitty", "iterm", "sixel":
+		u.Gfx = rest
+		if err := u.savePrefs(); err != nil {
+			Log.Println(err)
+		}
+		u.writeln(NewDevbotMessage("High-res images will use " + rest + " (effective " + u.effectiveGfx() + ")."))
+	default:
+		u.writeln(NewDevbotMessage("options: auto, blocks, kitty, iterm, sixel"))
+	}
+}
+
 func tzCMD(tzArg string, u *User) {
 	defer u.formatPrompt()
 	if tzArg == "" {
 		u.Timezone.Location = nil
+		u.RelativeTime = true
 		u.room.broadcast(NewDevbotMessage("Enabled relative times!"))
 		return
 	}
@@ -462,6 +495,7 @@ func tzCMD(tzArg string, u *User) {
 		return
 	}
 	u.FormatTime24 = len(tzArgList) == 2 && tzArgList[1] == "24h"
+	u.RelativeTime = false
 	u.room.broadcast(NewDevbotMessage("Changed your timezone!"))
 }
 
@@ -673,7 +707,9 @@ Interesting features:
 * Markdown support! Tables, headers, italics and everything. Just use \\n in place of newlines.
 * Code syntax highlighting. Use Markdown fences to send code. Run eg-code to see an example.
 * Direct messages! Send a quick DM using =user <msg> or stay in DMs by running cd @user.
-* Timezone support, use tz Continent/City to set your timezone.
+* Timestamps on every message. Set yours with tz Continent/City, and add 24h if you want a 24-hour clock. tz alone switches to relative times like "5m ago". Run man tz.
+* This room keeps recent chat (24 hours by default) and shows it again when you join, even after you leave or the server restarts. Run history to see it again. Run man history.
+* A link that ends in png, jpg, gif, or webp is shown as a picture. Put !hq in front of it for a sharp one. Run man gfx.
 * Built in Tic Tac Toe and Hangman! Run tic or hang <word> to start new games.
 * Emoji replacements! \:rocket\: => :rocket: (like on Slack and Discord)
 
@@ -759,29 +795,6 @@ func shrugCMD(line string, u *User) {
 	u.room.broadcast(NewMessage(u, line+` ¯\\_(ツ)_/¯`))
 }
 
-func pronounsCMD(line string, u *User) {
-	args := strings.Fields(line)
-
-	if line == "" {
-		u.room.broadcast(NewDevbotMessage("Set pronouns by providing em or query a user's pronouns!"))
-		return
-	}
-
-	if len(args) == 1 && strings.HasPrefix(args[0], "@") {
-		victim, ok := findUserByName(u.room, args[0][1:])
-		if !ok {
-			u.room.broadcast(NewDevbotMessage("Who's that?"))
-			return
-		}
-		u.room.broadcast(NewDevbotMessage(victim.Name + "'s pronouns are " + victim.displayPronouns()))
-		return
-	}
-
-	u.Pronouns = strings.Fields(strings.ReplaceAll(strings.ToLower(line), "\n", ""))
-	//u.changeColor(u.Color) // refresh pronouns
-	u.room.broadcast(NewDevbotMessage(u.Name + " now goes by " + u.displayPronouns()))
-}
-
 func emojisCMD(_ string, u *User) {
 	u.room.broadcast(NewDevbotMessage(`See the complete list at https://github.com/ikatyang/emoji-cheat-sheet/  
 Here are a few examples (type :emoji_text: to use):  
@@ -804,9 +817,68 @@ func commandsRestCMD(_ string, u *User) {
 	u.room.broadcast(NewDevbotMessage("The rest  \n" + autogenCommands(RestCMDs)))
 }
 
+func manPage(rest string) (string, bool) {
+	switch rest {
+	case "tz":
+		return `tz [zone] [24h] sets the clock on message timestamps.
+
+With no timezone set, stamps use the server's local time in 12-hour form (3:04 PM).
+tz America/Chicago          your time, 12-hour
+tz America/Chicago 24h      24-hour (15:04)
+tz PST                      US zones work too: PST, PDT, CST, CDT, EST, EDT, MT
+tz                          relative stamps instead, like "5m ago" or "2h ago"
+
+Messages from another day include the date. Run man history for the saved chat.`, true
+	case "history":
+		return `history prints this room's saved messages again. Handy after clear.
+
+You also get them automatically when you join the room, including after you disconnect and come back, and after a server restart.
+Each room has its own history. Direct messages are not saved.
+How far back it goes is the server's history_hours setting, 24 by default.`, true
+	case "gfx", "image", "images", "img":
+		return `Pictures are drawn blocky on purpose. One picture can be sharp.
+
+Paste a picture link by itself. It has to end in png, jpg, jpeg, gif, or webp:
+
+  https://example.com/cat.jpg
+
+Sharp version of that same link. !hq goes in front, with a space:
+
+  !hq https://example.com/cat.jpg
+
+These forms work too. The parentheses are part of the syntax:
+
+  ![cat](https://example.com/cat.jpg)
+  !hq[](https://example.com/cat.jpg)
+
+!cat is not a command. The word cat in the example was only a caption.
+
+You can also paste an image file when your terminal sends it (iTerm2 does). If paste does nothing, your terminal only copied text. From your own machine, print a link and paste that:
+
+  printf 'data:image/png;base64,%s' "$(base64 -w0 picture.png)"
+
+gfx chooses how a sharp picture is drawn for you. Your friend can pick something else. Ordinary pictures stay blocky either way.
+
+  gfx            show your current mode
+  gfx auto       detect from the terminal
+  gfx blocks     sharper blocks, full width. Works everywhere
+  gfx kitty      Kitty, Ghostty, WezTerm
+  gfx iterm      iTerm2
+  gfx sixel      xterm, foot, Windows Terminal, many WezTerm setups
+
+auto uses kitty on Kitty, Ghostty, and WezTerm, iterm on iTerm, and blocks everywhere else. The choice is saved on your account.`, true
+	default:
+		return "", false
+	}
+}
+
 func manCMD(rest string, u *User) {
 	if rest == "" {
 		u.room.broadcast(NewDevbotMessage("What command do you want help with?"))
+		return
+	}
+	if page, ok := manPage(rest); ok {
+		u.room.broadcast(NewDevbotMessage(page))
 		return
 	}
 

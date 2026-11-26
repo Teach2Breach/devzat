@@ -10,16 +10,17 @@ import (
 )
 
 type ConfigType struct {
-	Port        int               `yaml:"port"`
-	AltPort     int               `yaml:"alt_port"`
-	ProfilePort int               `yaml:"profile_port"`
-	Scrollback  int               `yaml:"scrollback"`
-	DataDir     string            `yaml:"data_dir"`
-	KeyFile     string            `yaml:"key_file"`
-	Admins      map[string]string `yaml:"admins"`
-	Censor      bool              `yaml:"censor,omitempty"`
-	Private     bool              `yaml:"private,omitempty"`
-	Allowlist   map[string]string `yaml:"allowlist,omitempty"`
+	Port         int               `yaml:"port"`
+	AltPort      int               `yaml:"alt_port"`
+	ProfilePort  int               `yaml:"profile_port"`
+	Scrollback   int               `yaml:"scrollback"`    // legacy cap, used only when history_hours is 0
+	HistoryHours int               `yaml:"history_hours"` // how long room history is kept; 0 falls back to scrollback
+	DataDir      string            `yaml:"data_dir"`
+	KeyFile      string            `yaml:"key_file"`
+	Admins       map[string]string `yaml:"admins"`
+	Censor       bool              `yaml:"censor,omitempty"`
+	Private      bool              `yaml:"private,omitempty"`
+	Allowlist    map[string]string `yaml:"allowlist,omitempty"`
 
 	IntegrationConfig string `yaml:"integration_config"`
 }
@@ -60,12 +61,13 @@ type RPCInfo struct {
 
 var (
 	Config = ConfigType{ // first stores default config
-		Port:        2221,
-		AltPort:     8080,
-		ProfilePort: 5555,
-		Scrollback:  16,
-		DataDir:     "devzat-data",
-		KeyFile:     "devzat-sshkey",
+		Port:         2221,
+		AltPort:      8080,
+		ProfilePort:  5555,
+		Scrollback:   16,
+		HistoryHours: 24,
+		DataDir:      "devzat-data",
+		KeyFile:      "devzat-sshkey",
 
 		IntegrationConfig: "",
 	}
@@ -119,8 +121,6 @@ func init() {
 		Config.Port, err = strconv.Atoi(os.Getenv("PORT"))
 		errCheck(err)
 	}
-
-	Backlog = make([]backlogMessage, Config.Scrollback)
 
 	if Config.IntegrationConfig != "" {
 		d, err = os.ReadFile(Config.IntegrationConfig)

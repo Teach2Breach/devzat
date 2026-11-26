@@ -11,6 +11,9 @@ devzat-data/log.txt
 devzat-data/bans.json
 devzat-data/user-prefs
 devzat-data/tokens.json
+devzat-data/history.jsonl
+devzat-data/history.jsonl.tmp
+devzat-data/uploads/
 allusers.json
 iptables.sh
 twitter-creds.json

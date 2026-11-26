@@ -31,7 +31,7 @@ func TestLineBreakIsCorrect(t *testing.T) {
 				"Testing",
 				makeDummyRoom(),
 			),
-			want: "Test: Testing\r\n",
+			want: "15:04 Test: Testing\r\n",
 		},
 		{
 			name: "SimpleMessageLineWrap",
@@ -40,7 +40,7 @@ func TestLineBreakIsCorrect(t *testing.T) {
 				"Testing With A Long String That Is Over 80 chars long even excluding the username",
 				makeDummyRoom(),
 			),
-			want: "Test: Testing With A Long String That Is Over 80 chars long even excluding the\r\n      username\r\n",
+			want: "15:04 Test: Testing With A Long String That Is Over 80 chars long even excluding\r\n            the username\r\n",
 		},
 		{
 			name: "TestLineBreakIsCorrectOfByOne",
@@ -49,20 +49,24 @@ func TestLineBreakIsCorrect(t *testing.T) {
 				"Maybe there is a off-by-one error in the way the line width is counted.",
 				makeDummyRoom(),
 			),
-			want: "Arkaeriit: Maybe there is a off-by-one error in the way the line width is\r\n           counted.\r\n",
+			want: "15:04 Arkaeriit: Maybe there is a off-by-one error in the way the line width is\r\n                 counted.\r\n",
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			user.lastTimestamp = time.Now()
-			user.writeln(test.input)
+			user.FormatTime24 = true
+			user.Timezone = tz{time.UTC}
+			msg := test.input
+			msg.timestamp = time.Now().UTC()
+			user.writeln(msg)
 			read, err := io.ReadAll(buff)
 			if err != nil {
 				panic(err)
 			}
 			received := removeSpaceBeforeLineBreak(stripansi.Strip(string(read)))
-			if received != test.want {
-				t.Errorf("got %q, want %q", received, test.want)
+			want := strings.Replace(test.want, "15:04", fmtMsgTime(user, msg.timestamp), 1)
+			if received != want {
+				t.Errorf("got %q, want %q", received, want)
 			}
 		})
 	}

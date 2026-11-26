@@ -37,6 +37,8 @@ port: 2221
 alt_port: 443
 # what port to host profiling on (unimportant)
 profile_port: 5555
+# how many hours of room chat to keep and replay on join (0 uses scrollback instead)
+history_hours: 24
 # where to store data such as bans and logs
 data_dir: devzat-data
 # where the SSH private key is stored
@@ -78,7 +80,7 @@ The `allowlist` has the same format as the `admins` list. Add the IDs of the all
 
 All admins are allowed even if their ID is not in the allowlist. So, if everyone on the private server is an admin, an allowlist isn't necessary, just enable private mode.
 
-Message backlog on `#main` is disabled in private chats. Only those logged in at the same time as you can read your messages.
+Room messages are kept for `history_hours` (24 by default) and shown again when someone joins that room, including after a disconnect or a server restart. This includes private servers. Direct messages are not stored. Set `history_hours: 0` to keep only the last `scrollback` messages instead. Pasted images are saved under `data_dir/uploads`.
 
 ### Enabling integrations
 

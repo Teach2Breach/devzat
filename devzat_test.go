@@ -4,12 +4,24 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/acarl005/stripansi"
 )
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "devzat-unit-")
+	if err != nil {
+		panic(err)
+	}
+	Config.DataDir = dir
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func makeDummyRoom() *Room {
 	ret := &Room{name: "DummyRoom", users: []*User{}, usersMutex: sync.RWMutex{}}
