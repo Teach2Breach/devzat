@@ -464,7 +464,7 @@ func checkKey(keyPath string) {
 		Log.Printf("Error while generating keypair: %v\n", err)
 		return
 	}
-	privkeyFile, err := os.Create(keyPath)
+	privkeyFile, err := os.OpenFile(keyPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		Log.Printf("Error while creating a file for the private key: %v\n", err)
 		return

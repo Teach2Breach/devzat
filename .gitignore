@@ -26,3 +26,4 @@ admins.json
 *.bak
 devzat.yml
 integration.yml
+desktop/target/

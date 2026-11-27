@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -93,6 +92,10 @@ func init() {
 // runCommands parses a line of raw input from a User and sends a message as
 // required, running any commands the User may have called.
 func runCommands(msg Message) {
+	if msg.sender.gui != nil && strings.HasPrefix(msg.text, guiQuiet) {
+		guiQuietCommand(msg.sender, strings.TrimPrefix(msg.text, guiQuiet))
+		return
+	}
 	if msg.sender.IsMuted {
 		msg.sender.writeln(NewMessage(msg.sender, msg.text))
 		return
@@ -219,6 +222,10 @@ func hangCMD(rest string, u *User) {
 }
 
 func clearCMD(_ string, u *User) {
+	if u.gui != nil {
+		u.gui.send(guiSimple{T: "clear"})
+		return
+	}
 	u.term.Write([]byte("\033[H\033[2J"))
 }
 
@@ -384,12 +391,7 @@ func cdCMD(rest string, u *User) {
 			rest = rest[0:MaxRoomNameLen]
 			u.room.broadcast(NewDevbotMessage("Room name lengths are limited, so I'm shortening it to " + rest + "."))
 		}
-		if v, ok := Rooms[rest]; ok {
-			u.changeRoom(v)
-		} else {
-			Rooms[rest] = &Room{rest, make([]*User, 0, 10), sync.RWMutex{}}
-			u.changeRoom(Rooms[rest])
-		}
+		u.changeRoom(getOrCreateRoom(rest))
 		return
 	}
 	if rest == "" {
@@ -398,16 +400,13 @@ func cdCMD(rest string, u *User) {
 			roomName   string
 			numOfUsers int
 		}
-		var ss []kv
-		for k, v := range Rooms {
-			ss = append(ss, kv{k, len(v.users)})
-		}
-		sort.Slice(ss, func(i, j int) bool {
-			return ss[i].numOfUsers > ss[j].numOfUsers
+		rooms := roomList()
+		sort.Slice(rooms, func(i, j int) bool {
+			return len(rooms[i].users) > len(rooms[j].users)
 		})
 		roomsInfo := ""
-		for _, kv := range ss {
-			roomsInfo += Blue.Paint(kv.roomName) + ": " + printUsersInRoom(Rooms[kv.roomName]) + "  \n"
+		for _, r := range rooms {
+			roomsInfo += Blue.Paint(r.name) + ": " + printUsersInRoom(r) + "  \n"
 		}
 		u.room.broadcast(NewNoSenderMessage("Rooms and users  \n" + strings.TrimSpace(roomsInfo)))
 		return
@@ -871,7 +870,7 @@ The default prompt is "\u:\S".`))
 
 func lsCMD(rest string, u *User) {
 	if len(rest) > 0 && rest[0] == '#' {
-		if r, ok := Rooms[rest]; ok {
+		if r := getRoom(rest); r != nil {
 			usersList := ""
 			for _, us := range r.users {
 				usersList += us.Name + Blue.Paint("/ ")
@@ -892,16 +891,16 @@ func lsCMD(rest string, u *User) {
 		u.room.broadcast(NewDevbotMessage("ls: " + rest + " Permission denied"))
 		return
 	}
-	roomList := ""
-	for _, r := range Rooms {
-		roomList += Blue.Paint(r.name + "/ ")
+	rooms := ""
+	for _, r := range roomList() {
+		rooms += Blue.Paint(r.name + "/ ")
 	}
 	usersList := ""
 	for _, us := range u.room.users {
 		usersList += us.Name + Blue.Paint("/ ")
 	}
 	usersList += Devbot + Blue.Paint("/ ")
-	u.room.broadcast(NewDevbotMessage("README.md " + usersList + roomList))
+	u.room.broadcast(NewDevbotMessage("README.md " + usersList + rooms))
 }
 
 func commandsCMD(_ string, u *User) {
@@ -985,9 +984,9 @@ func eightBallCMD(_ string, u *User) {
 func rmdirCMD(rest string, u *User) {
 	if rest == "#main" {
 		u.room.broadcast(NewDevbotMessage("rmdir: failed to remove '" + rest + "': Operation not permitted"))
-	} else if room, ok := Rooms[rest]; ok {
+	} else if room := getRoom(rest); room != nil {
 		if len(room.users) == 0 {
-			delete(Rooms, rest)
+			deleteRoom(rest)
 			u.room.broadcast(NewDevbotMessage("rmdir: removing directory, '" + rest + "'"))
 		} else {
 			u.room.broadcast(NewDevbotMessage("rmdir: failed to remove '" + rest + "': Room not empty"))

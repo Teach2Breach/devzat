@@ -214,6 +214,16 @@ func replayHistory(u *User, room string) {
 	if len(entries) == 0 {
 		return
 	}
+	if u.gui != nil {
+		u.gui.send(guiHistoryMark{T: "history", Phase: "begin", Room: room, Label: historyLabel()})
+		for _, e := range entries {
+			msg := entryToMessage(e)
+			msg.replay = true
+			u.writeln(msg)
+		}
+		u.gui.send(guiHistoryMark{T: "history", Phase: "end", Room: room, Label: historyLabel()})
+		return
+	}
 	_, _ = u.term.Write([]byte("\x1b[38;5;245m——— " + historyLabel() + " ———\x1b[0m\n"))
 	for _, e := range entries {
 		u.writeln(entryToMessage(e))

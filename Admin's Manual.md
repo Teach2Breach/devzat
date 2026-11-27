@@ -78,7 +78,13 @@ The `allowlist` has the same format as the `admins` list. Add the IDs of the all
 
 All admins are allowed even if their ID is not in the allowlist. So, if everyone on the private server is an admin, an allowlist isn't necessary, just enable private mode.
 
-Room messages are kept for `history_hours` (24 by default) and shown again when someone joins that room, including after a disconnect or a server restart. This includes private servers. Direct messages are not stored. Set `history_hours: 0` to keep only the last `scrollback` messages instead. Pasted images are saved under `data_dir/uploads`.
+Room messages are kept for `history_hours` (24 by default) and shown again when someone joins that room, including after a disconnect or a server restart. This includes private servers. Direct messages are not stored. Set `history_hours: 0` to keep only the last `scrollback` messages instead. Pasted and uploaded images are saved under `data_dir/uploads` and deleted once they are older than `history_hours`.
+
+When devzat shows a picture from a link, the server fetches it. It refuses links that point at private, loopback, link-local, or carrier-grade NAT addresses, so a posted link can't reach a cloud provider's metadata service or other machines on the server's own network.
+
+### Desktop app
+
+The desktop client in `desktop/` connects over SSH like everyone else and requests the `devzat-json` subsystem instead of a terminal. It goes through the same bans, allowlist, rate limits, and saved names as terminal users, and desktop and terminal users chat in the same rooms. There is nothing to enable. To test the protocol by hand, run `ssh -p 2221 you@server devzat-json` and type JSON lines such as `{"t":"send","text":"hi"}`.
 
 ### Enabling integrations
 

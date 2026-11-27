@@ -205,7 +205,11 @@ func (s *pluginServer) SendMessage(ctx context.Context, msg *pb.Message) (*pb.Me
 		return nil, err
 	}
 	if msg.GetEphemeralTo() != "" {
-		u, success := findUserByName(Rooms[msg.Room], *msg.EphemeralTo)
+		room := getRoom(msg.Room)
+		if room == nil {
+			return nil, status.Error(codes.InvalidArgument, "Room does not exist")
+		}
+		u, success := findUserByName(room, *msg.EphemeralTo)
 		if !success {
 			return nil, status.Error(codes.NotFound, "Could not find user "+*msg.EphemeralTo)
 		}
@@ -218,7 +222,7 @@ func (s *pluginServer) SendMessage(ctx context.Context, msg *pb.Message) (*pb.Me
 		localMsg = localMsg.dontSendToPlugin(token)
 		u.writeln(localMsg)
 	} else {
-		r := Rooms[msg.Room]
+		r := getRoom(msg.Room)
 		if r == nil {
 			return nil, status.Error(codes.InvalidArgument, "Room does not exist")
 		}

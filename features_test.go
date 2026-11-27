@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"image"
@@ -101,6 +102,44 @@ func TestMessageStampUsesTimezone(t *testing.T) {
 	rel := fmtMsgTime(u, time.Now().Add(-2*time.Hour))
 	if rel != "2h ago" {
 		t.Fatalf("relative = %q", rel)
+	}
+}
+
+func TestGUIInputLine(t *testing.T) {
+	got := guiInputLine("line one\nline two\twith a literal \\n\x03\x1b[A" + guiQuiet + "end")
+	want := `line one\nline two    with a literal \\n[Aend`
+	if got != want {
+		t.Fatalf("guiInputLine = %q, want %q", got, want)
+	}
+	for room, ok := range map[string]bool{"#fun": true, "#": false, "fun": false, "#two words": false, "#" + strings.Repeat("x", 40): false} {
+		if validGUIRoom(room) != ok {
+			t.Fatalf("validGUIRoom(%q) = %v", room, !ok)
+		}
+	}
+	if guiCaption("a [weird](caption)\nhere") != "a weird caption here" {
+		t.Fatalf("caption = %q", guiCaption("a [weird](caption)\nhere"))
+	}
+}
+
+func TestReadLimitedLine(t *testing.T) {
+	r := bufio.NewReaderSize(strings.NewReader(strings.Repeat("x", 300)+"\nok\n"), 16)
+	if _, err := readLimitedLine(r, 100); err != errLineTooLong {
+		t.Fatalf("long line err = %v", err)
+	}
+	line, err := readLimitedLine(r, 100)
+	if err != nil || string(line) != "ok" {
+		t.Fatalf("next line = %q, %v", line, err)
+	}
+}
+
+func TestRefusePrivateAddr(t *testing.T) {
+	for _, addr := range []string{"127.0.0.1:80", "10.1.2.3:443", "169.254.169.254:80", "[::1]:80", "100.64.1.1:80", "192.168.1.5:443"} {
+		if refusePrivateAddr("tcp", addr, nil) == nil {
+			t.Fatalf("%s was allowed", addr)
+		}
+	}
+	if err := refusePrivateAddr("tcp", "93.184.216.34:443", nil); err != nil {
+		t.Fatalf("public address refused: %v", err)
 	}
 }
 

@@ -40,6 +40,42 @@ const (
 	maxMsgLen = 5120
 )
 
+var roomsMu sync.RWMutex // guards Rooms
+
+func getRoom(name string) *Room {
+	roomsMu.RLock()
+	defer roomsMu.RUnlock()
+	return Rooms[name]
+}
+
+func getOrCreateRoom(name string) *Room {
+	roomsMu.Lock()
+	defer roomsMu.Unlock()
+	if r, ok := Rooms[name]; ok {
+		return r
+	}
+	r := &Room{name, make([]*User, 0, 10), sync.RWMutex{}}
+	Rooms[name] = r
+	return r
+}
+
+func deleteRoom(name string) {
+	roomsMu.Lock()
+	delete(Rooms, name)
+	roomsMu.Unlock()
+}
+
+// roomList returns a snapshot of the rooms so callers can range over it without holding roomsMu.
+func roomList() []*Room {
+	roomsMu.RLock()
+	defer roomsMu.RUnlock()
+	rs := make([]*Room, 0, len(Rooms))
+	for _, r := range Rooms {
+		rs = append(rs, r)
+	}
+	return rs
+}
+
 type Ban struct {
 	Addr      string
 	ID        string
@@ -88,6 +124,7 @@ type User struct {
 	termName string
 	gfxAuto  string
 	pastes   *imagePasteGate
+	gui      *guiSink // set for desktop clients, which get JSON instead of terminal output
 }
 
 type tz struct {
@@ -128,6 +165,12 @@ func main() {
 	}()
 	readBans()
 	loadHistory()
+	pruneUploads()
+	go func() {
+		for range time.Tick(time.Hour) {
+			pruneUploads()
+		}
+	}()
 	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
@@ -139,7 +182,7 @@ func main() {
 			Log.Println("Broadcast taking too long, exiting server early.")
 			os.Exit(4)
 		})
-		for _, r := range Rooms {
+		for _, r := range roomList() {
 			r.broadcast(NewDevbotMessage("Server going down! This is probably because it is being updated. Try joining back immediately.  \n" +
 				"If you still can't join, try joining back in 2 minutes. If you _still_ can't join, make an issue at github.com/quackduck/devzat/issues"))
 			for _, u := range r.users {
@@ -167,6 +210,10 @@ func main() {
 
 	ssh.Handle(func(s ssh.Session) {
 		go keepSessionAlive(s)
+		if s.RawCommand() == guiSubsystem { // lets `ssh host devzat-json` reach the desktop protocol for debugging
+			guiSession(s)
+			return
+		}
 		u := newUser(s)
 		if u == nil {
 			s.Close()
@@ -201,6 +248,13 @@ func main() {
 			conn.(*net.TCPConn).SetKeepAlivePeriod(time.Minute) //nolint:errcheck
 			return conn
 		}),
+		func(srv *ssh.Server) error {
+			srv.SubsystemHandlers = map[string]ssh.SubsystemHandler{guiSubsystem: func(s ssh.Session) {
+				go keepSessionAlive(s)
+				guiSession(s)
+			}}
+			return nil
+		},
 	)
 	if err != nil {
 		Log.Println(err)
@@ -346,7 +400,8 @@ func roomAutocomplete(_ *User, words []string) string {
 	// trying to refer to a room?
 	if len(words) > 0 && words[len(words)-1][0] == '#' {
 		// don't slice the # off, since the room name includes it
-		for name := range Rooms {
+		for _, r := range roomList() {
+			name := r.name
 			toAdd := strings.TrimPrefix(name, words[len(words)-1])
 			if toAdd != name { // there was a match, and some text got trimmed!
 				return toAdd + " "
@@ -354,6 +409,16 @@ func roomAutocomplete(_ *User, words []string) string {
 		}
 	}
 	return ""
+}
+
+// sessionIdentity returns the remote IP and the user's ID (a hash of their public key, or of the IP for keyless logins).
+func sessionIdentity(s ssh.Session) (host, id string) {
+	host, _, _ = net.SplitHostPort(s.RemoteAddr().String()) // definitely should not give an err
+	toHash := host
+	if pubkey := s.PublicKey(); pubkey != nil {
+		toHash = string(pubkey.Marshal())
+	}
+	return host, shasum(toHash)
 }
 
 func newUser(s ssh.Session) *User {
@@ -373,17 +438,7 @@ func newUser(s ssh.Session) *User {
 		w = 80
 	}
 
-	host, _, _ := net.SplitHostPort(s.RemoteAddr().String()) // definitely should not give an err
-
-	toHash := ""
-
-	pubkey := s.PublicKey()
-	if pubkey != nil {
-		toHash = string(pubkey.Marshal())
-	} else { // If we can't get the public key fall back to the IP.
-		toHash = host
-	}
-
+	host, id := sessionIdentity(s)
 	u := &User{
 		Name:         s.User(),
 		session:      s,
@@ -391,7 +446,7 @@ func newUser(s ssh.Session) *User {
 		ColorBG:      "bg-off",
 		Bell:         true,
 		Bio:          "(none set)",
-		id:           shasum(toHash),
+		id:           id,
 		addr:         host,
 		winWidth:     w,
 		lastInteract: time.Now(),
@@ -408,7 +463,39 @@ func newUser(s ssh.Session) *User {
 			}
 		}
 	}()
+	return admitUser(u, s)
+}
 
+// newGUIUser makes a user for a desktop client. Input lines arrive on input; output goes to sink as JSON.
+func newGUIUser(s ssh.Session, sink *guiSink, input io.Reader) *User {
+	term := terminal.NewTerminal(struct {
+		io.Reader
+		io.Writer
+	}{input, io.Discard}, "> ")
+	_ = term.SetSize(10000, 10000)
+	host, id := sessionIdentity(s)
+	u := &User{
+		Name:         s.User(),
+		session:      s,
+		term:         term,
+		ColorBG:      "bg-off",
+		Bell:         true,
+		Bio:          "(none set)",
+		id:           id,
+		addr:         host,
+		winWidth:     120,
+		lastInteract: time.Now(),
+		joinTime:     time.Now(),
+		room:         MainRoom,
+		gui:          sink,
+	}
+	return admitUser(u, s)
+}
+
+// admitUser runs the checks and setup shared by terminal and desktop users. It returns nil if the user was turned away.
+func admitUser(u *User, s ssh.Session) *User {
+	host := u.addr
+	term := u.term
 	Log.Println("Connected " + u.Name + " [" + u.id + "]")
 
 	if TORIPs[u.addr] {
@@ -457,8 +544,10 @@ func newUser(s ssh.Session) *User {
 		return nil
 	}
 
-	clearCMD("", u) // always clear the screen on connect
-	holidaysCheck(u)
+	if u.gui == nil {
+		clearCMD("", u) // always clear the screen on connect
+		holidaysCheck(u)
+	}
 
 	if rand.Float64() <= 0.4 { // 40% chance of being a random color
 		u.changeColor("random") //nolint:errcheck // we know "random" is a valid color
@@ -508,9 +597,11 @@ func newUser(s ssh.Session) *User {
 	MainRoom.usersMutex.Unlock()
 	go sendCurrentUsersTwitterMessage()
 
-	u.term.SetBracketedPasteMode(true) // experimental paste bracketing support
-	term.AutoCompleteCallback = func(line string, pos int, key rune) (string, int, bool) {
-		return autocompleteCallback(u, line, pos, key)
+	if u.gui == nil {
+		u.term.SetBracketedPasteMode(true) // experimental paste bracketing support
+		term.AutoCompleteCallback = func(line string, pos int, key rune) (string, int, bool) {
+			return autocompleteCallback(u, line, pos, key)
+		}
 	}
 
 	switch len(MainRoom.users) - 1 {
@@ -528,7 +619,7 @@ func newUser(s ssh.Session) *User {
 // cleanupRoomInstant deletes a room if it's empty and isn't the main room
 func cleanupRoomInstant(r *Room) {
 	if r != MainRoom && r != nil && len(r.users) == 0 {
-		delete(Rooms, r.name)
+		deleteRoom(r.name)
 	}
 }
 
@@ -573,6 +664,9 @@ func (u *User) close(msg string) {
 	if u.session == nil {
 		return
 	}
+	if u.gui != nil {
+		u.gui.send(guiBye{T: "bye", Reason: stripansi.Strip(msg)})
+	}
 	u.session.Close()
 	u.session = nil
 	err := u.savePrefs()
@@ -605,10 +699,10 @@ func (u *User) ban(banMsg string, useTime bool, unbanTime time.Time) {
 	saveBans()
 	uid := u.id
 	u.close(banMsg)
-	for i := range Rooms { // close all users that have this id (including this user)
-		for j := 0; j < len(Rooms[i].users); j++ {
-			if Rooms[i].users[j].id == uid {
-				Rooms[i].users[j].close("")
+	for _, r := range roomList() { // close all users that have this id (including this user)
+		for j := 0; j < len(r.users); j++ {
+			if r.users[j].id == uid {
+				r.users[j].close("")
 				j--
 			}
 		}
@@ -622,10 +716,11 @@ type Message struct {
 	messageType      MessageType
 	sentFromPluginId string
 	timestamp        time.Time
+	replay           bool // shown again from history rather than sent just now
 }
 
 func NewMessage(sender *User, text string) Message {
-	return Message{sender, text, DefaultMessage, "", time.Now()}
+	return Message{sender: sender, text: text, messageType: DefaultMessage, timestamp: time.Now()}
 }
 
 func NewFakeUserMessage(sender string, text string, room *Room) Message {
@@ -643,7 +738,7 @@ func NewDevbotMessage(text string) Message {
 }
 
 func NewNoSenderMessage(text string) Message {
-	return Message{nil, text, NoSenderMessage, "", time.Now()}
+	return Message{text: text, messageType: NoSenderMessage, timestamp: time.Now()}
 }
 
 func NewPrivateMessage(sender *User, text string, isSender bool) Message {
@@ -651,7 +746,7 @@ func NewPrivateMessage(sender *User, text string, isSender bool) Message {
 	if isSender {
 		messageType = PrivateMessageSend
 	}
-	return Message{sender, text, messageType, "", time.Now()}
+	return Message{sender: sender, text: text, messageType: messageType, timestamp: time.Now()}
 }
 
 func (msg Message) dontSendToPlugin(pluginId string) Message {
@@ -679,6 +774,10 @@ const (
 func (u *User) writeln(msg Message) { u.writelnWithImageCache(msg, nil) }
 
 func (u *User) writelnWithImageCache(msg Message, cache map[string]image.Image) {
+	if u.gui != nil {
+		u.gui.message(u, msg)
+		return
+	}
 	if strings.Contains(msg.text, u.Name) { // is a ping
 		msg.text += "\a"
 	}
@@ -815,14 +914,18 @@ func (u *User) changeRoom(r *Room) {
 	if u.room == r {
 		return
 	}
+	u.room.usersMutex.Lock()
 	u.room.users = remove(u.room.users, u)
+	u.room.usersMutex.Unlock()
 	u.room.broadcast(NewNoSenderMessage(u.Name + " is joining " + Blue.Paint(r.name))) // tell the old room
 	cleanupRoom(u.room)
 	u.room = r
 	if _, dup := userDuplicate(u.room, u.Name); dup {
 		u.pickUsername("") //nolint:errcheck // if reading input failed the next repl will err out
 	}
+	u.room.usersMutex.Lock()
 	u.room.users = append(u.room.users, u)
+	u.room.usersMutex.Unlock()
 	replayHistory(u, r.name)
 	u.room.broadcast(NewNoSenderMessage(Green.Paint(" --> ") + u.Name + " has joined " + Blue.Paint(u.room.name)))
 }

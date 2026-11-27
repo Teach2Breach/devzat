@@ -51,6 +51,10 @@ Feel free to make a [new issue](https://github.com/quackduck/devzat/issues) if s
 
 See the [status site](https://stats.uptimerobot.com/kxMQqfYk4y) of the main Devzat server to check if it might be down.
 
+### Prefer a window?
+
+There's a desktop app for Linux and Windows in [`desktop/`](desktop/README.md). It signs in with an SSH key, checks the server's host key, and joins the same rooms as terminal users, with pictures, themes, and the usual chat comforts.
+
 ### Want to host your own instance?
 
 Quick start:

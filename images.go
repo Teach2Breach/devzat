@@ -5,17 +5,20 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/disintegration/imaging"
@@ -190,8 +193,33 @@ func saveUpload(data []byte, ext string) (string, error) {
 		if err := os.WriteFile(path, data, 0644); err != nil {
 			return "", err
 		}
+	} else {
+		now := time.Now() // a repost keeps the file alive as long as the newest message that uses it
+		_ = os.Chtimes(path, now, now)
 	}
 	return name, nil
+}
+
+// pruneUploads deletes uploaded images older than the history window, so they live exactly as long as the chat that shows them.
+func pruneUploads() {
+	if Config.HistoryHours <= 0 {
+		return
+	}
+	dir := filepath.Join(Config.DataDir, "uploads")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cut := time.Now().Add(-time.Duration(Config.HistoryHours)*time.Hour - time.Hour)
+	for _, e := range entries {
+		if !uploadRe.MatchString(e.Name()) {
+			continue
+		}
+		info, err := e.Info()
+		if err == nil && info.ModTime().Before(cut) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 func loadUpload(name string) ([]byte, error) {
@@ -459,14 +487,47 @@ func loadAnyImage(ref string) (image.Image, error) {
 	}
 }
 
-func fetchRemoteImage(ref string) (image.Image, error) {
-	client := http.Client{Timeout: 5 * time.Second}
+var safeHTTP = &http.Client{
+	Timeout: 10 * time.Second,
+	Transport: &http.Transport{
+		Proxy:                  nil,
+		DialContext:            (&net.Dialer{Timeout: 5 * time.Second, Control: refusePrivateAddr}).DialContext,
+		TLSHandshakeTimeout:    5 * time.Second,
+		ResponseHeaderTimeout:  5 * time.Second,
+		MaxResponseHeaderBytes: 64 << 10,
+	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("too many redirects")
+		}
+		return nil
+	},
+}
+
+var cgnatNet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+
+// refusePrivateAddr keeps image fetches off the server's own network, such as cloud metadata endpoints.
+// It runs on the resolved address, so DNS tricks don't get around it.
+func refusePrivateAddr(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || ip.IsMulticast() || cgnatNet.Contains(ip) {
+		return errors.New("refusing to fetch from a private address")
+	}
+	return nil
+}
+
+func fetchRemoteBytes(ref string, limit int64) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, ref, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching image")
 	}
 	req.Header.Set("User-Agent", "devzat")
-	res, err := client.Do(req)
+	res, err := safeHTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching image")
 	}
@@ -474,13 +535,26 @@ func fetchRemoteImage(ref string) (image.Image, error) {
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("http: %s", http.StatusText(res.StatusCode))
 	}
-	limitReader := io.LimitReader(res.Body, 30*1024*1024)
-	header := new(bytes.Buffer)
-	config, _, err := image.DecodeConfig(io.TeeReader(limitReader, header))
+	b, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("error fetching image")
+	}
+	if int64(len(b)) > limit {
+		return nil, fmt.Errorf("image too large")
+	}
+	return b, nil
+}
+
+func fetchRemoteImage(ref string) (image.Image, error) {
+	b, err := fetchRemoteBytes(ref, 30*1024*1024)
+	if err != nil {
+		return nil, err
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(b))
 	if err != nil || config.Width > 4032*2 || config.Height > 3024*2 {
 		return nil, fmt.Errorf("invalid or too large to render")
 	}
-	img, _, err := image.Decode(io.MultiReader(header, limitReader))
+	img, _, err := image.Decode(bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("error decoding image")
 	}
