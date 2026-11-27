@@ -1,175 +1,218 @@
 <div align="center">
 <img src="https://github.com/quackduck/devzat/assets/38882631/046fbb4d-dff2-41e9-a61c-271d0820473e" style="height: 100px; border-radius: 50px;" />
+
+# Devzat
+
+**Chat over SSH, now with a desktop app.**
 </div>
 
-***
+Devzat is an SSH server that drops you into a chat room instead of a shell. There are SSH apps on every platform, phones included, so anyone can join from anywhere. Your SSH key is your identity: no accounts, no passwords.
 
-<a href="https://www.producthunt.com/posts/devzat?utm_source=badge-top-post-badge&utm_medium=badge&utm_souce=badge-devzat" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=298678&theme=light&period=daily" alt="Devzat - Chat with other devs over SSH in your Terminal | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+> **This is a fork** of [quackduck/devzat](https://github.com/quackduck/devzat), the original project by [Ishan Goel](https://github.com/quackduck). It adds a desktop client for Linux and Windows, timestamps, chat history that survives reconnects, picture sharing, and some cleanup and security fixes. See [What this fork adds](#what-this-fork-adds).
 
-Where are the devs at? Devzat!
+![The Devzat desktop client](desktop/screenshot.jpg)
 
-Devzat is a custom SSH server that takes you to a chat instead of a shell prompt. Because there's SSH apps on all platforms (even on phones) you can connect to Devzat on any device!
+## Contents
 
-<!-- <img src="https://user-images.githubusercontent.com/38882631/115499526-a4d70280-a280-11eb-8723-817f54eccf3e.png" height=400px /> -->
+- [What this fork adds](#what-this-fork-adds)
+- [The desktop client](#the-desktop-client)
+- [Joining from a terminal](#joining-from-a-terminal)
+- [Hosting a server](#hosting-a-server)
+- [Commands](#commands)
+- [Integrations and plugins](#integrations-and-plugins)
+- [Credits and license](#credits-and-license)
 
-A recording I took one day:
-[![asciicast](https://asciinema.org/a/477083.svg)](https://asciinema.org/a/477083?speed=3)
-## Usage
+## What this fork adds
 
-Try it out:
+- **A desktop client** for Linux and Windows, built in Rust with egui. Desktop and terminal users share the same rooms.
+- **Timestamps on every message**, shown in your own time zone, with 12-hour, 24-hour, or relative ("5m ago") times.
+- **24 hours of room history**, replayed when you join, even after you disconnect or the server restarts. The window is configurable.
+- **Pictures**: paste or drop an image, or send a link that ends in `.png`, `.jpg`, `.gif`, or `.webp`. Pictures keep devzat's pixelated terminal look by default; put `!hq` in front for a sharp one.
+- **Security fixes**: the server's private host key is created readable only by its owner, and picture links can't make the server reach its own private network (such as a cloud metadata service).
+- **Removed**: the profanity filter, the `pronouns` command, and the non-working `theme` command.
+
+The public server at `devzat.hackclub.com` runs the original project, so the desktop client can't connect there. Point it at a server running this fork.
+
+## The desktop client
+
+The desktop app connects to a devzat server over SSH, the same way a terminal does, then talks to it through a dedicated channel so it can show real chat bubbles, pictures, and a member list.
+
+- Rooms, direct messages, a member list, mentions, and unread badges
+- Markdown, code blocks with a copy button, clickable links, and devzat's colored names
+- Paste, drag, or attach pictures; send them retro or sharp (HQ); click any picture to view it full size
+- `/` opens a command picker, `@` completes names, and there's an emoji picker
+- Four themes (Neon, Phosphor, Sunset, Paper), optional CRT scanlines, and confetti
+- Checks the server's host key with an OpenSSH-style fingerprint and randomart, and warns loudly if it changes
+- Reconnects on its own if the network drops
+- A borderless window: drag the top bar to move it, double-click to maximize, resize from any edge
+
+### Build it
+
+You need Rust 1.95 or newer. Install it from [rustup.rs](https://rustup.rs).
+
+**Linux**
 
 ```sh
-ssh devzat.hackclub.com
+git clone https://github.com/Teach2Breach/devzat
+cd devzat/desktop
+cargo build --release
+./target/release/devzat-desktop
 ```
 
-If it's your first time logging in, you can choose your display name with the SSH username. For example, if you want to be called "wenjie", you can run:
+It runs on X11 or Wayland with any working Vulkan or OpenGL driver.
+
+**Windows**
+
+Install Rust with the default (MSVC) toolchain, then in PowerShell or a Command Prompt:
+
+```powershell
+git clone https://github.com/Teach2Breach/devzat
+cd devzat\desktop
+cargo build --release
+.\target\release\devzat-desktop.exe
+```
+
+The `.exe` is a single file with no extra DLLs, so you can copy it anywhere.
+
+**Windows build from Linux**
+
 ```sh
-ssh wenjie@devzat.hackclub.com
+rustup target add x86_64-pc-windows-gnu
+sudo apt install mingw-w64
+cd devzat/desktop
+cargo build --release --target x86_64-pc-windows-gnu
 ```
-If you want to change your display name after the first login, you should use the `nick` command.
 
+The result is `target/x86_64-pc-windows-gnu/release/devzat-desktop.exe`.
 
-If you're under a firewall, you can still join on port 443:
+### Use it
+
+1. **Connect.** Enter the server address, its port (`2221` unless the admin changed it), and a display name, then press Connect.
+2. **Check the server's key.** The first time, the app shows the server's fingerprint. Compare it with what the admin gives you; they can print it with `ssh-keygen -lv -f devzat-sshkey`. Then choose "Trust & connect". If the key ever changes, the app stops and warns you.
+3. **Pick your identity.** The app makes its own SSH key on first run. To keep the same name, color, and admin rights you have in the terminal, use "Change key" on the launch screen and choose your existing key, such as `~/.ssh/id_ed25519`. "Copy ID" copies the ID an admin needs for a private server's allowlist.
+4. **Chat.** Enter sends and Shift+Enter starts a new line. Type `/` for commands or `@` for names. Click a person in the member list to message them privately, and use `+` next to Rooms to join or create a room.
+5. **Share pictures.** Paste with Ctrl+V, drag a file onto the window, or use the paperclip. Turn on HQ to send them sharp. To see every picture sharp, turn off "Retro pixel pictures" in Settings.
+
+The app keeps its key, trusted server keys, and settings in `~/.local/share/devzat-desktop/` on Linux and `%APPDATA%\devzat-desktop\` on Windows. More detail is in [desktop/README.md](desktop/README.md).
+
+## Joining from a terminal
+
 ```sh
-ssh devzat.hackclub.com -p 443
+ssh -p 2221 yourname@chat.example.com
 ```
 
-If you add this to `~/.ssh/config`:
-```ssh
+The first time you join, your SSH username becomes your display name. Change it later with `nick`. To make joining shorter, add this to `~/.ssh/config`:
+
+```ssh-config
 Host chat
-    HostName devzat.hackclub.com
+    HostName chat.example.com
+    Port 2221
+    User yourname
 ```
 
-You'll be able to join with just:
+Then `ssh chat` is enough.
+
+Things to try once you're in:
+
+- `cd` lists rooms, `cd #name` joins or creates one, and `cd ..` goes back to `#main`
+- `=name hello` sends a private message
+- Markdown works, including code fences. Use `\n` for a new line
+- `tz America/Chicago` (add `24h` for a 24-hour clock) sets your time zone, and plain `tz` switches to relative times
+- `history` shows the room's last 24 hours again
+- A picture link shows as a picture. `!hq <link>` sends a sharp one, and `gfx` picks how sharp pictures draw in your terminal (Kitty, iTerm2, sixel, or blocks)
+- `:rocket:` becomes 🚀, and `tic` and `hang` start games
+
+If you see `Permission denied (publickey)`, you don't have an SSH key yet. Make one with `ssh-keygen -t ed25519`. On servers that aren't private, you can also join without a key on the second port (`8080` by default).
+
+## Hosting a server
+
+You need Go 1.24 or newer.
+
 ```sh
-ssh chat
+git clone https://github.com/Teach2Breach/devzat && cd devzat
+go build -o devzat .
+./devzat
 ```
 
-We also have a Slack bridge! If you're on the [Hack Club](https://hackclub.com) Slack, check out the `#ssh-chat-bridge` channel!
+On first run, devzat writes a default `devzat.yml` and a host key, then listens on port 2221. Set `PORT` to use another port. The config includes, among other settings:
 
-Feel free to make a [new issue](https://github.com/quackduck/devzat/issues) if something doesn't work.
-
-See the [status site](https://stats.uptimerobot.com/kxMQqfYk4y) of the main Devzat server to check if it might be down.
-
-### Prefer a window?
-
-There's a desktop app for Linux and Windows in [`desktop/`](desktop/README.md). It signs in with an SSH key, checks the server's host key, and joins the same rooms as terminal users, with pictures, themes, and the usual chat comforts.
-
-### Want to host your own instance?
-
-Quick start:
-```shell
-git clone https://github.com/quackduck/devzat && cd devzat
-go build # or install, if you want to install the binary in `$GOPATH`
-./devzat # run! the default config is used & written automatically
+```yaml
+port: 2221
+alt_port: 8080        # keyless logins, only on servers that aren't private
+history_hours: 24     # how much room history to keep and replay
+data_dir: devzat-data # bans, saved names, history, uploaded pictures
+key_file: devzat-sshkey
+private: false        # true limits the server to the allowlist below
+allowlist: {}         # ID: note, for each person allowed on a private server
+admins: {}            # ID: note, for each admin
 ```
-These commands download, build, setup and run a Devzat server listening on port 2221, the default port (change by setting `$PORT`).
 
-Check out the [Admin's Manual](Admin's%20Manual.md) for complete self-host documentation!
+Desktop users need nothing extra on the server; the desktop channel is always available. They go through the same bans, allowlist, and rate limits as everyone else.
 
-### Permission denied?
+devzat also serves Go's profiler on `profile_port` (5555 by default). Keep that port closed to the internet.
 
-Devzat uses public keys to identify users. If you are denied access: `foo@devzat.hackclub.com: Permission denied (publickey)` try logging in on port 443, which does not require a key, using `ssh devzat.hackclub.com -p 443`.
+**Upgrading from the original devzat?** Delete the `censor:` line from your config; this fork no longer has that setting and won't start with it. Also run `chmod 600 devzat-sshkey`, because older versions created the key readable by other users.
 
-This error may happen because you do not have an SSH key pair. Generate one with the command `ssh-keygen` if this is the case. (you can usually check if you have a key pair by making sure a file of this form: `~/.ssh/id_*` exists)
+The [Admin's Manual](Admin's%20Manual.md) covers admins, private servers, integrations, and more.
 
-### Help
+## Commands
+
+Run `cmds` in the chat for the main list and `rest` for the others. `man <command>` explains one in detail.
 
 ```text
-Welcome to Devzat! Devzat is chat over SSH: github.com/quackduck/devzat
-Because there's SSH apps on all platforms, even on mobile, you can join from anywhere.
-
-Run `cmds` to see a list of commands.
-
-Interesting features:
-• Rooms! Run cd to see all rooms and use cd #foo to join a new room.
-• Markdown support! Tables, headers, italics and everything. Just use \n in place of newlines.
-• Code syntax highlighting. Use Markdown fences to send code. Run eg-code to see an example.
-• Direct messages! Send a quick DM using =user <msg> or stay in DMs by running cd @user.
-• Timezone support, use tz Continent/City to set your timezone.
-• Built in Tic Tac Toe and Hangman! Run tic or hang <word> to start new games.
-• Emoji replacements! :rocket: => 🚀  (like on Slack and Discord)
-
-For replacing newlines, I often use bulkseotools.com/add-remove-line-breaks.php.
-
-Made by Ishan Goel with feature ideas from friends.
-Thanks to Caleb Denio for lending his server!
+=<user>  <msg>             DM <user> with <msg>
+users                      List users
+color    <color>           Change your name's color
+exit                       Leave the chat
+help                       Show help
+man      <cmd>             Get help for a specific command
+emojis                     See a list of emojis
+bell     on|off|all        Ring the terminal bell on pings, never, or for every message
+clear                      Clear the screen
+hang     <char|word>       Play hangman
+tic      <cell num>        Play tic tac toe
+devmonk                    Test your typing speed
+cd       #room|user        Join a room, DM someone, or list rooms
+tz       <zone> [24h]      Set your time zone for timestamps
+history                    Replay this room's saved messages
+gfx      <mode>            How sharp pictures are drawn: auto, blocks, kitty, iterm, sixel
+nick     <name>            Change your display name
+prompt   <prompt>          Change your prompt
+rest                       Uncommon commands
+cmds                       Show this list
 ```
-### Commands
+
 ```text
-Commands
-   =<user>   <msg>           DM <user> with <msg>
-   users                     List users
-   color     <color>         Change your name's color
-   exit                      Leave the chat
-   help                      Show help
-   man       <cmd>           Get help for a specific command
-   emojis                    See a list of emojis
-   bell      on|off|all      ANSI bell on pings (on), never (off) or for every message (all)
-   clear                     Clear the screen
-   hang      <char|word>     Play hangman
-   tic       <cell num>      Play tic tac toe!
-   devmonk                   Test your typing speed
-   cd        #room|user      Join #room, DM user or run cd to see a list
-   tz        <zone> [24h]    Set your IANA timezone (like tz Asia/Dubai) and optionally set 24h
-   nick      <name>          Change your username
-   rest                      Uncommon commands list
-   cmds                      Show this message
+bio      [user]               Show someone's bio, or set yours
+id       <user>               Show someone's ID (a hash of their key)
+admins                        List admin IDs
+eg-code  [big]                Example of syntax-highlighted code
+lsbans                        List banned IDs
+ban      <user> [reason] [dur]  Ban someone (admin)
+unban    <IP|ID>              Unban someone (admin)
+mute     <user>               Mute someone (admin)
+unmute   <user>               Unmute someone (admin)
+kick     <user>               Kick someone (admin)
+art                           Panda art
+pwd                           Show your current room
+shrug                         ¯\_(ツ)_/¯
+uname                         Show build info
+uptime                        Show server uptime
+8ball    <question>           Always tells the truth
+rmdir    #room                Remove an empty room
+logs     [lines]              Show server logs (admin)
 ```
-```
-The rest
-   people                  See info about nice people who joined
-   id       <user>         Get a unique ID for a user (hashed key)
-   admins                  Print the ID (hashed key) for all admins
-   eg-code  [big]          Example syntax-highlighted code
-   lsbans                  List banned IDs
-   ban      <user>         Ban <user> (admin)
-   unban    <IP|ID> [dur]  Unban a person and optionally, for a duration (admin)
-   kick     <user>         Kick <user> (admin)
-   art                     Show some panda art
-   pwd                     Show your current room
-   shrug                   ¯\_(ツ)_/¯
-```
-tip: `kick` can help kick out an old session when rejoining if needed
-## Integrations
 
-When self-hosting an instance, Devzat can integrate with Slack and/or Discord to bridge messages, and Twitter to post new-user announcements.
-See the [Admin's Manual](Admin's%20Manual.md) for more info.
+Tip: `kick` can clear out your own old session if it's stuck after a dropped connection.
 
-Devzat has a plugin API you can use to integrate your own services: [documentation](plugin/README.md). Feel free to add a plugin to the main instance. Just ask for a token on the server.
+## Integrations and plugins
 
+A self-hosted server can bridge a room to Slack and post join announcements to Twitter. Discord bridging and other extras are available as plugins built on devzat's gRPC [plugin API](plugin/README.md). The [Admin's Manual](Admin's%20Manual.md) explains how to set these up and lists known plugins.
 
-## Stargazers over time
+## Credits and license
 
-[![Stargazers over time](https://starchart.cc/quackduck/devzat.svg)](https://starchart.cc/quackduck/devzat)
+Devzat was created by [Ishan Goel](https://github.com/quackduck) with ideas and code from many contributors. Thanks to [Hack Club](https://hackclub.com) and [Caleb Denio](https://github.com/cjdenio) for hosting the original public server. For the original project and its history, see [quackduck/devzat](https://github.com/quackduck/devzat).
 
+Devzat is MIT licensed; see [LICENSE](LICENSE). The desktop client's dependencies use permissive licenses such as MIT, Apache-2.0, and BSD, and its bundled fonts use the SIL Open Font License. Details are in [desktop/README.md](desktop/README.md).
 
-## People
-
-People who you might know who have joined:
-
-Zach Latta - Founder of Hack Club: _"omg amazing! this is so awesome"_  
-Ant Wilson - Co founder, Supabase: [_"brilliant!"_](https://twitter.com/AntWilson/status/1396444302721445889)  
-Bereket [@heybereket](https://twitter.com/heybereket): _"this is pretty cool"_  
-Ayush [@ayshptk](https://twitter.com/ayshptk): _"Can I double star the repo somehow :pleading_face:"_  
-Sanketh [@SankethYS](https://twitter.com/SankethYS): _"Heck! How does this work. So cool."_  
-Tony Dinh [@tdinh_me](https://twitter.com/tdinh_me): _"supeer cool, oh, open source as well? yeah"_  
-Srushti [@srushtiuniverse](https://twitter.com/srushtiuniverse): _"Yess it's awesome. I tried it."_  
-Surjith [@surjithctly](https://twitter.com/surjithctly): _"Whoa, who made this?"_  
-Arav [@HeyArav](https://twitter.com/HeyArav): [_"Okay, this is actually super awesome."_](https://twitter.com/tregsthedev/status/1384180393893498880)  
-Harsh [@harshb__](https://twitter.com/harshb__): _"im gonna come here everyday to chill when i get bored of studying lol, this is so cool"_
-Krish [@krishnerkar_](https://twitter.com/krishnerkar_):  [_"SHIT! THIS IS SO DOPE"_](https://twitter.com/krishnerkar_/status/1384173042616573960)  
-Amrit [@astro_shenava](https://twitter.com/astro_shenava): _"Super cool man"_  
-Mudrank [@mudrankgupta](https://twitter.com/mudrankgupta): "🔥🚀🚀"
-
-From Hack Club:  
-**[Caleb Denio](https://calebden.io), [Safin Singh](https://safin.dev), [Eleeza](https://github.com/E-Lee-Za)   
-[Jubril](https://github.com/s1ntaxe770r), [Sarthak Mohanty](https://sarthakmohanty.me)    
-[Sam Poder](http://sampoder.com), [Rishi Kothari](http://rishi.cx)    
-[Amogh Chaubey](https://amogh.sh), [Ella](https://ella.cx/), [Hugo Hu](https://github.com/Hugoyhu)
-[Matthew Stanciu](https://matthewstanciu.me/), [Tanishq Soni](https://tanishqsoni.me)**
-
-Huge thanks to the amazing [Caleb Denio](https://github.com/cjdenio) for lending me the original Devzat server 💖
-
-
-### *Made by [Ishan Goel](https://twitter.com/usrbinishan/) with feature ideas from friends. Thanks to [Caleb Denio](https://twitter.com/CalebDenio) for lending his server!*
+A Chinese translation of the original README is in [README-CN.md](README-CN.md). It doesn't cover this fork's additions.
