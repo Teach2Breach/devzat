@@ -107,9 +107,7 @@ impl DevzatApp {
             ui.label(RichText::new(message.as_str()).color(pal.text_dim));
             ui.add_space(8.0);
             let r = ui.add(egui::TextEdit::singleline(name).hint_text("new-name").desired_width(f32::INFINITY).char_limit(27));
-            if !r.has_focus() && !r.lost_focus() {
-                r.request_focus();
-            }
+            focus_when_ready(&r);
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button("Cancel").clicked() {
@@ -143,9 +141,7 @@ impl DevzatApp {
             ui.label(RichText::new(crate::launch::short_path(&k.path)).monospace().color(pal.text_dim));
             ui.add_space(8.0);
             let r = ui.add(egui::TextEdit::singleline(&mut k.passphrase).password(true).hint_text("passphrase").desired_width(f32::INFINITY));
-            if !r.has_focus() && !r.lost_focus() {
-                r.request_focus();
-            }
+            focus_when_ready(&r);
             let enter = ui.input(|i| i.key_pressed(Key::Enter));
             if let Some(e) = &k.error {
                 ui.label(RichText::new(e).color(pal.bad));
@@ -242,9 +238,7 @@ impl DevzatApp {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("#").font(theme::bold(18.0)).color(pal.accent2));
                 let r = ui.add(egui::TextEdit::singleline(name).hint_text("room-name").desired_width(f32::INFINITY).char_limit(29));
-                if !r.has_focus() && !r.lost_focus() {
-                    r.request_focus();
-                }
+                focus_when_ready(&r);
             });
             if ui.input(|i| i.key_pressed(Key::Enter)) {
                 result = Some(Some(name.clone()));
@@ -526,6 +520,16 @@ impl DevzatApp {
                 }
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
+    }
+}
+
+/// Keeps a dialog's text box focused, but only once the window itself has focus. Grabbing text focus
+/// earlier (on the first frame of a dialog shown at startup) turns on IME before the window is ready,
+/// and on X11 the window then gets no keyboard or mouse input at all.
+pub fn focus_when_ready(r: &egui::Response) {
+    let window_focused = r.ctx.input(|i| i.viewport().focused == Some(true));
+    if window_focused && !r.has_focus() && !r.lost_focus() {
+        r.request_focus();
     }
 }
 

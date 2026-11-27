@@ -176,7 +176,7 @@ impl DevzatApp {
                             .lock_focus(true)
                             .return_key(Some(KeyboardShortcut::new(Modifiers::SHIFT, Key::Enter))),
                     );
-                    if self.composer.want_focus {
+                    if self.composer.want_focus && ui.input(|i| i.viewport().focused == Some(true)) {
                         resp.request_focus();
                         self.composer.want_focus = false;
                     }
