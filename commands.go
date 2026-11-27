@@ -2,9 +2,6 @@ package main
 
 import (
 	"fmt"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"math"
 	"math/rand"
 	"os"
@@ -15,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alecthomas/chroma"
-	chromastyles "github.com/alecthomas/chroma/styles"
 	"github.com/fatih/color"
 	"github.com/jwalton/gchalk"
 	"github.com/quackduck/term"
@@ -50,10 +45,8 @@ var (
 		{"gfx", gfxCMD, "auto|blocks|kitty|iterm|sixel", "How sharp images are drawn for you. Run man gfx"},
 		{"nick", nickCMD, "`name`", "Change your username"},
 		{"prompt", promptCMD, "`prompt`", "Change your prompt. Run `man prompt` for more info"},
-		{"theme", themeCMD, "`name`|list", "Change the syntax highlighting theme"},
 		{"rest", commandsRestCMD, "", "Uncommon commands list"}}
 	RestCMDs = []CMD{
-		// {"people", peopleCMD, "", "See info about nice people who joined"},
 		{"bio", bioCMD, "[`user`]", "Get a user's bio or set yours"},
 		{"id", idCMD, "`user`", "Get a unique ID for a user (hashed key)"},
 		{"admins", adminsCMD, "", "Print the ID (hashed key) for all admins"},
@@ -66,7 +59,6 @@ var (
 		{"kick", kickCMD, "`user`", "Kick <user> (admin)"},
 		{"art", asciiArtCMD, "", "Show some panda art"},
 		{"pwd", pwdCMD, "", "Show your current room"},
-		//		{"sixel", sixelCMD, "<png url>", "Render an image in high quality"},
 		{"shrug", shrugCMD, "", `¯\\\_(ツ)\_/¯`}, // won't actually run, here just to show in docs
 		{"uname", unameCMD, "", "Show build info"},
 		{"uptime", uptimeCMD, "", "Show server uptime"},
@@ -100,8 +92,6 @@ func init() {
 
 // runCommands parses a line of raw input from a User and sends a message as
 // required, running any commands the User may have called.
-// It also accepts a boolean indicating if the line of input is from slack, in
-// which case some commands will not be run (such as ./tz and ./exit)
 func runCommands(msg Message) {
 	if msg.sender.IsMuted {
 		msg.sender.writeln(NewMessage(msg.sender, msg.text))
@@ -744,37 +734,6 @@ func exampleCodeCMD(line string, u *User) {
 		return
 	}
 	u.room.broadcast(NewDevbotMessage("\n```go\npackage main\nimport \"fmt\"\nfunc main() {\n   fmt.Println(\"Example!\")\n}\n```"))
-}
-
-func init() { // add Matt Gleich's blackbird theme from https://github.com/blackbirdtheme/vscode/blob/master/themes/blackbird-midnight-color-theme.json#L175
-	red := "#ff1131" // added saturation
-	redItalic := "italic " + red
-	white := "#fdf7cd"
-	yellow := "#e1db3f"
-	blue := "#268ef8"  // added saturation
-	green := "#22e327" // added saturation
-	gray := "#5a637e"
-	teal := "#00ecd8"
-	tealItalic := "italic " + teal
-
-	chromastyles.Register(chroma.MustNewStyle("blackbird", chroma.StyleEntries{chroma.Text: white, chroma.Error: red, chroma.Comment: gray, chroma.Keyword: redItalic, chroma.KeywordNamespace: redItalic, chroma.KeywordType: tealItalic, chroma.Operator: blue, chroma.Punctuation: white, chroma.Name: white, chroma.NameAttribute: white, chroma.NameClass: green, chroma.NameConstant: tealItalic, chroma.NameDecorator: green, chroma.NameException: red, chroma.NameFunction: green, chroma.NameOther: white, chroma.NameTag: yellow, chroma.LiteralNumber: blue, chroma.Literal: yellow, chroma.LiteralDate: yellow, chroma.LiteralString: yellow, chroma.LiteralStringEscape: teal, chroma.GenericDeleted: red, chroma.GenericEmph: "italic", chroma.GenericInserted: green, chroma.GenericStrong: "bold", chroma.GenericSubheading: yellow, chroma.Background: "bg:#000000"}))
-}
-
-func themeCMD(line string, u *User) {
-	// TODO: make this work with glamour
-	u.room.broadcast(NewDevbotMessage("Themes do not currently work because Devzat is switching to using glamour for rendering."))
-	if line == "list" {
-		u.room.broadcast(NewDevbotMessage("Available themes: " + strings.Join(chromastyles.Names(), ", ")))
-		return
-	}
-	for _, name := range chromastyles.Names() {
-		if name == line {
-			//markdown.CurrentTheme = chromastyles.Get(name)
-			u.room.broadcast(NewDevbotMessage("Theme set to " + name))
-			return
-		}
-	}
-	u.room.broadcast(NewDevbotMessage("What theme is that? Use theme list to see what's available."))
 }
 
 func asciiArtCMD(_ string, u *User) {

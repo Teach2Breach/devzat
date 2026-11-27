@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -25,10 +24,8 @@ import (
 	"github.com/charmbracelet/glamour/ansi"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/disintegration/imaging"
-	//"github.com/eliukblau/pixterm/pkg/ansimage"
 	"github.com/fatih/color"
 	"github.com/gliderlabs/ssh"
-	//markdown "github.com/quackduck/go-term-markdown"
 	terminal "github.com/quackduck/term"
 	cryptoSSH "golang.org/x/crypto/ssh"
 )

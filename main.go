@@ -1,7 +1,6 @@
 package main
 
 import (
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -293,20 +292,10 @@ func (r *Room) broadcastNoBridges(msg Message) {
 	msg.text = absorbEmbeddedImages(msg.text)
 	msg.text = r.findMention(strings.ReplaceAll(msg.text, "@everyone", Green.Paint("everyone\a")))
 	imgCache := make(map[string]image.Image, 1)
-	//go func() {
-	//r.usersMutex.RLock()
-	//timeAtStart := time.Now()
 	for i := 0; i < len(r.users); i++ { // updates when new users join or old users leave. it is okay to read concurrently.
-		//if time.Since(timeAtStart) > time.Second*3 {
-		//	go r.users[i].writeln(senderName, msg)
-		//} else {
 		r.users[i].writelnWithImageCache(msg, imgCache)
-		//}
 	}
 	debug.FreeOSMemory()
-	//runtime.GC()
-	//r.usersMutex.RUnlock()
-	//}()
 	recordHistory(r.name, msg)
 }
 
@@ -725,17 +714,8 @@ func (u *User) writelnWithImageCache(msg Message, cache map[string]image.Image) 
 	}
 }
 
-// Write to the right of the User's window
-func (u *User) rWriteln(msg string) {
-	if u.winWidth-lenString(msg) > 0 {
-		u.term.Write([]byte(strings.Repeat(" ", u.winWidth-lenString(msg)) + msg + "\n"))
-	} else {
-		u.term.Write([]byte(msg + "\n"))
-	}
-}
-
-// pickUsernameQuietly changes the User's username, broadcasting a name change notification if needed.
-// An error is returned if the username entered had a bad word or reading input failed.
+// pickUsername changes the User's username, broadcasting a name change notification if needed.
+// An error is returned if the username entered is invalid or reading input failed.
 func (u *User) pickUsername(possibleName string) error {
 	oldName := u.Name
 	err := u.pickUsernameQuietly(possibleName)
@@ -903,15 +883,12 @@ func (u *User) repl() {
 
 		line += "\n"
 		hasNewlines := false
-		//oldPrompt := u.Name + ": "
 		for err == terminal.ErrPasteIndicator {
 			hasNewlines = true
-			//u.term.SetPrompt(strings.Repeat(" ", lenString(u.Name)+2))
 			u.term.SetPrompt("")
 			additionalLine := ""
 			additionalLine, err = u.term.ReadLine()
 			additionalLine = strings.ReplaceAll(additionalLine, `\n`, `\\n`)
-			//additionalLine = strings.ReplaceAll(additionalLine, "\t", strings.Repeat(" ", 8))
 			line += additionalLine + "\n"
 		}
 		if err != nil {
@@ -960,28 +937,21 @@ func (u *User) repl() {
 	}
 }
 
-// may contain a bug ("may" because it could be the terminal's fault)
+// calculateLinesTaken erases the wrapped lines the user just typed so the formatted message can replace them.
 func calculateLinesTaken(u *User, s string, width int) {
 	s = stripansi.Strip(s)
-	//Log.Println("`"+s+"`", "width", width)
 	pos := 0
-	//lines := 1
 	u.term.Write([]byte("\033[A\033[2K"))
-	currLine := ""
 	for _, c := range s {
 		pos++
-		currLine += string(c)
 		if c == '\t' {
 			pos += 8
 		}
 		if c == '\n' || pos > width {
 			pos = 1
-			//lines++
 			u.term.Write([]byte("\033[A\033[2K"))
 		}
-		//Log.Println(string(c), "`"+currLine+"`", "pos", pos, "lines", lines)
 	}
-	//return lines
 }
 
 // getBan returns the ban element it it exist or nil otherwise

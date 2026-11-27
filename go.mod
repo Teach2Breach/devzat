@@ -5,7 +5,6 @@ go 1.24.0
 require (
 	devzat/plugin v0.0.0-00010101000000-000000000000
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
-	github.com/alecthomas/chroma v0.10.0
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/dghubble/go-twitter v0.0.0-20221104224141-912508c3888b
 	github.com/dghubble/oauth1 v0.7.2

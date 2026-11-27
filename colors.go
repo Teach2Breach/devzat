@@ -67,7 +67,6 @@ func colorNameWithColor(c string) string {
 }
 
 func init() {
-	//markdown.CurrentTheme = chromastyles.ParaisoDark
 	ColorHelpMsg = strings.Join(func() []string {
 		colors := make([]string, 0, len(Styles))
 		for i := range Styles {
