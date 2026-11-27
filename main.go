@@ -772,8 +772,6 @@ func (u *User) pickUsernameQuietly(possibleName string) error {
 		possibleName = cleanName(possibleName)
 	}
 
-	possibleName = rmBadWords(possibleName)
-
 	u.Name, _ = applyColorToData(possibleName, u.Color, u.ColorBG) //nolint:errcheck // we haven't changed the color so we know it's valid
 	u.formatPrompt()
 	return nil

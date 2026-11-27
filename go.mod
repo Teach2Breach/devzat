@@ -4,7 +4,6 @@ go 1.24.0
 
 require (
 	devzat/plugin v0.0.0-00010101000000-000000000000
-	github.com/TwiN/go-away v1.6.11
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/alecthomas/chroma v0.10.0
 	github.com/charmbracelet/glamour v1.0.0
@@ -18,6 +17,7 @@ require (
 	github.com/shurcooL/tictactoe v0.0.0-20210613024444-e573ff1376a3
 	github.com/slack-go/slack v0.12.3
 	golang.org/x/crypto v0.36.0
+	golang.org/x/image v0.12.0
 	google.golang.org/grpc v1.69.4
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -51,7 +51,6 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.7.13 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
-	golang.org/x/image v0.12.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/term v0.36.0 // indirect

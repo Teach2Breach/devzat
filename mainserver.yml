@@ -8,7 +8,6 @@ scrollback: 16 # the number of messages from #main to keep in memory to give con
 data_dir: devzat-data
 key_file: devzat-sshkey
 integration_config: devzat-creds.yml # the file itself is not committed into the repo for obvious reasons
-censor: true # the internet is harsh...
 admins:
   1eab2de20e41abed903ab2f22e7ff56dc059666dbe2ebbce07a8afeece8d0424: 'Shok: school'
   7f0ee4cba8c8d886d654820c4ea09090dc12be00746b9a64b73faab3f83a85c6: 'B Smith: hackclub, github.com/Merlin04'

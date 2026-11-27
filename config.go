@@ -18,7 +18,6 @@ type ConfigType struct {
 	DataDir      string            `yaml:"data_dir"`
 	KeyFile      string            `yaml:"key_file"`
 	Admins       map[string]string `yaml:"admins"`
-	Censor       bool              `yaml:"censor,omitempty"`
 	Private      bool              `yaml:"private,omitempty"`
 	Allowlist    map[string]string `yaml:"allowlist,omitempty"`
 

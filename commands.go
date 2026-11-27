@@ -103,8 +103,6 @@ func init() {
 // It also accepts a boolean indicating if the line of input is from slack, in
 // which case some commands will not be run (such as ./tz and ./exit)
 func runCommands(msg Message) {
-	msg.text = rmBadWords(msg.text)
-
 	if msg.sender.IsMuted {
 		msg.sender.writeln(NewMessage(msg.sender, msg.text))
 		return

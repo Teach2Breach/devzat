@@ -45,8 +45,6 @@ data_dir: devzat-data
 key_file: devzat-sshkey
 # where an integration config is stored (optional)
 integration_config: devzat-integrations.yml
-# whether to censor messages (optional)
-censor: true
 # a list of admin IDs and notes about them
 admins:
   d6acd2f5c5a8ef95563883032ef0b7c0239129b2d3672f964e5711b5016e05f5: 'Arkaeriit: github.com/Arkaeriit'
@@ -158,7 +156,6 @@ Here is a list of working plugins you can use in a Devzat server:
 * [Devzat Courier](https://github.com/Arkaeriit/devzat-courier): bridge multiple Devzat instances.
 * [Devzat Time Teller](https://github.com/Arkaeriit/Devzat_Time_Teller): tell the time in various time zones.
 * [devzat-wolfram](https://github.com/quackduck/devzat-wolframbot): Prompt WolframAlpha from Devzat.
-* [Devzat Censor](https://github.com/Arkaeriit/devzat-censor): Experimental plugin that has better censoring than the one embedded in Devzat.
 * [devzat-plugin-duckpoll](https://github.com/Merlin04/devzat-plugin-duckpoll): A poll plugin.
 * [HCemoji](https://github.com/Merlin04/devzat-hc-emoji): Add more emojis to Devzat.
 
